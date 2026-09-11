@@ -21,15 +21,7 @@ jobs:
       - name: Installa dipendenze
         run: pip install requests
 
-      - name: Ripristina memoria delle news
-        uses: actions/cache@v4
-        with:
-          path: published.json
-          key: aniimo-news-memory-${{ github.run_id }}
-          restore-keys: |
-            aniimo-news-memory-
-
-            - name: Controlla i file
+      - name: Controlla i file
         run: |
           echo "Directory corrente:"
           pwd
