@@ -1,12 +1,15 @@
 import os
+import json
+import re
 import requests
 import xml.etree.ElementTree as ET
 from urllib.parse import quote
 
 TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 
-# ANIIMO è l'unico soggetto che ci interessa
 QUERY = '"ANIIMO Italia"'
+SEEN_FILE = "published.json"
+
 
 def get_news():
     url = (
@@ -15,84 +18,124 @@ def get_news():
         + "&hl=it&gl=IT&ceid=IT:it"
     )
 
-    response = requests.get(url, timeout=20)
+    response = requests.get(url, timeout=30)
     response.raise_for_status()
 
     root = ET.fromstring(response.text)
-    news = []
+    articles = []
 
     for item in root.findall(".//item"):
         title = item.findtext("title", "")
         link = item.findtext("link", "")
-        pub_date = item.findtext("pubDate", "")
+        description = item.findtext("description", "")
 
-        # Filtro fondamentale:
-        # se ANIIMO non compare nel titolo, scartiamo.
-        if "aniimo" not in title.lower():
+        # ANIIMO deve comparire esplicitamente
+        text = (title + " " + description).lower()
+
+        if "aniimo" not in text:
             continue
 
-        news.append({
+        if not title or not link:
+            continue
+
+        articles.append({
             "title": title,
-            "link": link,
-            "date": pub_date
+            "link": link
         })
 
-    return news
+    return articles
 
 
-def get_updates():
+def load_seen():
+    if not os.path.exists(SEEN_FILE):
+        return set()
+
+    try:
+        with open(SEEN_FILE, "r", encoding="utf-8") as f:
+            return set(json.load(f))
+    except:
+        return set()
+
+
+def save_seen(seen):
+    with open(SEEN_FILE, "w", encoding="utf-8") as f:
+        json.dump(list(seen), f, ensure_ascii=False)
+
+
+def get_group_id():
     url = f"https://api.telegram.org/bot{TOKEN}/getUpdates"
-    response = requests.get(url, timeout=20)
+
+    response = requests.get(url, timeout=30)
     response.raise_for_status()
-    return response.json().get("result", [])
+
+    updates = response.json().get("result", [])
+
+    for update in reversed(updates):
+        message = update.get("message", {})
+        chat = message.get("chat", {})
+
+        if chat.get("type") in ("group", "supergroup"):
+            return chat.get("id")
+
+    return None
 
 
-def send_message(chat_id, text):
+def send_message(chat_id, article):
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 
-    requests.post(
-        url,
-        json={
-            "chat_id": chat_id,
-            "text": text,
-            "disable_web_page_preview": False
-        },
-        timeout=20
-    ).raise_for_status()
-
-
-# Per ora recuperiamo il gruppo dall'ultimo messaggio
-# ricevuto dal bot.
-updates = get_updates()
-
-chat_id = None
-
-for update in reversed(updates):
-    message = update.get("message", {})
-    chat = message.get("chat", {})
-
-    if chat.get("type") in ("group", "supergroup"):
-        chat_id = chat.get("id")
-        break
-
-if not chat_id:
-    print("Nessun gruppo trovato. Scrivi /news nel gruppo.")
-    exit(0)
-
-news = get_news()
-
-if not news:
-    print("Nessuna nuova notizia ANIIMO.")
-    exit(0)
-
-# Per ora pubblichiamo al massimo le 3 più recenti.
-for article in news[:3]:
-    text = (
+    message = (
         "🏳️‍🌈 ANIIMO NEWS\n\n"
         f"📰 {article['title']}\n\n"
         f"🔗 {article['link']}"
     )
 
-    send_message(chat_id, text)
+    response = requests.post(
+        url,
+        json={
+            "chat_id": chat_id,
+            "text": message,
+            "disable_web_page_preview": False
+        },
+        timeout=30
+    )
 
-print(f"Pubblicate {min(len(news), 3)} notizie.")
+    response.raise_for_status()
+
+
+def main():
+    print("Controllo news ANIIMO...")
+
+    chat_id = get_group_id()
+
+    if not chat_id:
+        print("Nessun gruppo trovato.")
+        print("Scrivi /news nel gruppo ANIIMO.")
+        return
+
+    print(f"Gruppo trovato: {chat_id}")
+
+    seen = load_seen()
+    articles = get_news()
+
+    new_articles = []
+
+    for article in articles:
+        if article["link"] not in seen:
+            new_articles.append(article)
+
+    if not new_articles:
+        print("Nessuna nuova notizia ANIIMO.")
+        return
+
+    # Pubblica massimo 3 nuove notizie per controllo
+    for article in new_articles[:3]:
+        send_message(chat_id, article)
+        seen.add(article["link"])
+
+    save_seen(seen)
+
+    print(f"Pubblicate {min(len(new_articles), 3)} nuove notizie ANIIMO.")
+
+
+if __name__ == "__main__":
+    main()
