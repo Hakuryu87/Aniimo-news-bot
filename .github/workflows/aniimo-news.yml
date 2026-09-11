@@ -29,6 +29,15 @@ jobs:
           restore-keys: |
             aniimo-news-memory-
 
+            - name: Controlla i file
+        run: |
+          echo "Directory corrente:"
+          pwd
+          echo "File presenti:"
+          ls -la
+          echo "Contenuto della directory:"
+          find . -maxdepth 3 -type f
+
       - name: Avvia ANIIMO News
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
