@@ -21,7 +21,15 @@ jobs:
       - name: Installa dipendenze
         run: pip install requests
 
-      - name: Avvia bot
+      - name: Ripristina memoria delle news
+        uses: actions/cache@v4
+        with:
+          path: published.json
+          key: aniimo-news-memory-${{ github.run_id }}
+          restore-keys: |
+            aniimo-news-memory-
+
+      - name: Avvia ANIIMO News
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         run: python bot.py
